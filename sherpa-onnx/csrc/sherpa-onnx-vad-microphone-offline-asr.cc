@@ -137,6 +137,7 @@ to download models for offline ASR.
 
   PaStreamParameters param;
   param.device = device_index;
+  // param.device = Pa_HostApiDeviceIndexToDeviceIndex(Pa_GetDefaultHostApi(), 0);
 
   fprintf(stderr, "Use device: %d\n", param.device);
 

@@ -3,7 +3,7 @@
 This is a minimal repository for Sherpa ONNX.
 
 
-### Installation
+### Installation in MacOS
 
 ```bash
 git clone https://github.com/joonhyung-lee/sherpa-onnx-minimal
@@ -14,6 +14,28 @@ cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j6
 cd ../
 ```
+
+### Installation in Linux
+
+```bash
+git clone https://github.com/joonhyung-lee/sherpa-onnx-minimal
+cd sherpa-onnx
+mkdir build
+cd build
+# By default, it builds static libaries and uses static link.
+cmake -DCMAKE_BUILD_TYPE=Release ..
+
+# If you have GCC<=10, e.g., use Ubuntu <= 18.04 or use CentOS<=7, please
+# use the following command to build shared libs; otherwise, you would
+# get link errors from libonnxruntime.a
+#
+# cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON ..
+#
+#
+make -j6 # You can check the number of threads by `nproc`
+cd ../
+```
+
 
 ### Download Pre-trained Models
 
@@ -72,6 +94,13 @@ Run below commands in the `root` directory of this repository.
     wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
     
     ./build/bin/sherpa-onnx-vad-microphone-offline-asr \
+      --silero-vad-model=./silero_vad.onnx \
+      --sense-voice-language=ko \
+      --tokens=./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt \
+      --sense-voice-model=./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx
+    
+    # In Jetson, you can use below command to run the script.
+    SHERPA_ONNX_MIC_DEVICE=0 SHERPA_ONNX_MIC_SAMPLE_RATE=44100 ./build/bin/sherpa-onnx-vad-microphone-offline-asr \
       --silero-vad-model=./silero_vad.onnx \
       --sense-voice-language=ko \
       --tokens=./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt \
