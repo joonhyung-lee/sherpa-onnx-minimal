@@ -144,7 +144,13 @@ to download models for offline ASR.
   fprintf(stderr, "  Name: %s\n", info->name);
   fprintf(stderr, "  Max input channels: %d\n", info->maxInputChannels);
 
-  param.channelCount = 1;
+  // param.channelCount = 2; // 1 for mono, 2 for stereo
+  param.channelCount = info->maxInputChannels;
+  if (param.channelCount > 2) {
+    fprintf(stderr, "Warning: Max input channels is %d. Set to 2.\n",
+            param.channelCount);
+    param.channelCount = 2;
+  }
   param.sampleFormat = paFloat32;
 
   param.suggestedLatency = info->defaultLowInputLatency;
