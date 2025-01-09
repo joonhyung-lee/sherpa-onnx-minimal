@@ -106,3 +106,20 @@ Run below commands in the `root` directory of this repository.
       --tokens=./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt \
       --sense-voice-model=./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx
     ```
+
+- Speech recognition from a microphone with VAD and Shared Memory
+    
+    ```python
+    ./build/bin/ros2-sherpa-onnx-vad-microphone-offline-asr \
+      --silero-vad-model=./silero_vad.onnx \
+      --sense-voice-language=ko \
+      --tokens=./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt \
+      --sense-voice-model=./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx
+
+    # In Jetson, you can use below command to run the script.
+    SHERPA_ONNX_MIC_DEVICE=0 SHERPA_ONNX_MIC_SAMPLE_RATE=44100 ./build/bin/ros2-sherpa-onnx-vad-microphone-offline-asr \
+      --silero-vad-model=./silero_vad.onnx \
+      --sense-voice-language=ko \
+      --tokens=./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/tokens.txt \
+      --sense-voice-model=./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/model.int8.onnx
+    ```

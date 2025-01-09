@@ -431,6 +431,12 @@ if(SHERPA_ONNX_ENABLE_PORTAUDIO AND SHERPA_ONNX_ENABLE_BINARY)
     microphone.cc
   )
 
+  # Custom ROS2 ASR: Shared Memory
+  add_executable(ros2-sherpa-onnx-vad-microphone-offline-asr
+    ros2-sherpa-onnx-vad-microphone-offline-asr.cc
+    microphone.cc
+  )
+
   add_executable(sherpa-onnx-microphone-offline-speaker-identification
     sherpa-onnx-microphone-offline-speaker-identification.cc
     microphone.cc
@@ -449,6 +455,7 @@ if(SHERPA_ONNX_ENABLE_PORTAUDIO AND SHERPA_ONNX_ENABLE_BINARY)
     sherpa-onnx-microphone-offline-audio-tagging
     sherpa-onnx-vad-microphone
     sherpa-onnx-vad-microphone-offline-asr
+    ros2-sherpa-onnx-vad-microphone-offline-asr # Custom ROS2 ASR: Shared Memory
   )
   if(SHERPA_ONNX_ENABLE_TTS)
     list(APPEND exes
