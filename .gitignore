@@ -132,3 +132,4 @@ matcha-icefall-en_US-ljspeech
 # For minimal purpose
 /dart-*
 /dotnet-*
+/build

@@ -77,7 +77,7 @@ Run below commands in the `root` directory of this repository.
       --num-threads=1 \
       --sense-voice-language=ko \
       --debug=0 \
-      ./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/zh.wav
+      ./sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/ko.wav
     ```
     
 - Speech recognition from a microphone
