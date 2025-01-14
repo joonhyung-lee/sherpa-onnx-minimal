@@ -24,6 +24,11 @@ void VadModelConfig::Register(ParseOptions *po) {
 
   po->Register("vad-debug", &debug,
                "true to display debug information when loading vad models");
+
+  po->Register("vad-pre-record-seconds", &pre_record_seconds,
+               "Pre-record seconds before speech starts");
+  po->Register("vad-post-record-seconds", &post_record_seconds,
+               "Post-record seconds after speech ends");
 }
 
 bool VadModelConfig::Validate() const { return silero_vad.Validate(); }
@@ -36,7 +41,9 @@ std::string VadModelConfig::ToString() const {
   os << "sample_rate=" << sample_rate << ", ";
   os << "num_threads=" << num_threads << ", ";
   os << "provider=\"" << provider << "\", ";
-  os << "debug=" << (debug ? "True" : "False") << ")";
+  os << "debug=" << (debug ? "True" : "False") << ", ";
+  os << "pre_record_seconds=" << pre_record_seconds << ", ";
+  os << "post_record_seconds=" << post_record_seconds << ")";
 
   return os.str();
 }

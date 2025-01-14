@@ -41,6 +41,9 @@ class VoiceActivityDetector {
   // the last speech segment can be detected.
   void Flush() const;
 
+  void SetPreRecordSeconds(float seconds);
+  void SetPostRecordSeconds(float seconds);
+
   const VadModelConfig &GetConfig() const;
 
  private:

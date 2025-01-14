@@ -7,6 +7,7 @@
 #include <stdlib.h>
 
 #include <algorithm>
+#include <chrono>  // Add this at the top with other includes
 #include <mutex>  // NOLINT
 
 #include "portaudio.h"  // NOLINT
@@ -15,7 +16,7 @@
 #include "sherpa-onnx/csrc/offline-recognizer.h"
 #include "sherpa-onnx/csrc/resample.h"
 #include "sherpa-onnx/csrc/voice-activity-detector.h"
-
+#include "sherpa-onnx/csrc/vad-model-config.h"
 
 // ############################################################
 #include <iostream>
@@ -106,17 +107,22 @@ to download models for offline ASR.
   sherpa_onnx::OfflineRecognizerConfig asr_config;
 
   // ############################################################
+  // 기존 공유 메모리가 있다면 제거
+  shm_unlink(SHM_NAME);
+
   // 공유 메모리 생성 및 초기화
   std::cout << "SHM_NAME: " << SHM_NAME << std::endl;
   int fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
   if (fd == -1) {
-      fprintf(stderr, "Failed to create shared memory\n");
+      fprintf(stderr, "Failed to create shared memory: %s\n", strerror(errno));
       exit(EXIT_FAILURE);
   }
 
   // 공유 메모리 크기 설정
   if (ftruncate(fd, sizeof(SharedData)) == -1) {
-      fprintf(stderr, "Failed to set size of shared memory\n");
+      fprintf(stderr, "Failed to set size of shared memory: %s\n", strerror(errno));
+      close(fd);
+      shm_unlink(SHM_NAME);
       exit(EXIT_FAILURE);
   }
 
@@ -235,6 +241,12 @@ to download models for offline ASR.
 
   auto vad = std::make_unique<sherpa_onnx::VoiceActivityDetector>(vad_config);
 
+  // Configure pre/post record times (in seconds)
+  float pre_record = 0.5;   // 0.5 seconds before speech
+  float post_record = 0.5;  // 0.5 seconds after speech
+  vad->SetPreRecordSeconds(pre_record);
+  vad->SetPostRecordSeconds(post_record);
+
   fprintf(stderr, "Started. Please speak\n");
 
   int32_t window_size = vad_config.silero_vad.window_size;
@@ -263,10 +275,17 @@ to download models for offline ASR.
       auto s = recognizer.CreateStream();
       s->AcceptWaveform(sample_rate, segment.samples.data(),
                         segment.samples.size());
+      auto start_time = std::chrono::high_resolution_clock::now();
       recognizer.DecodeStream(s.get());
+      auto end_time = std::chrono::high_resolution_clock::now();
+
+      std::chrono::duration<float> duration = end_time - start_time;
       const auto &result = s->GetResult();
       if (!result.text.empty()) {
-        fprintf(stderr, "%2d: %s\n", index, result.text.c_str());
+        fprintf(stderr, "%2d: %s (%.3fs)\n", 
+                index, 
+                result.text.c_str(), 
+                duration.count());
 
         // ############################################################
         // 공유 메모리에 결과 저장

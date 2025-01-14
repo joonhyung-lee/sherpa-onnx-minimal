@@ -21,15 +21,21 @@ struct VadModelConfig {
   // true to show debug information when loading models
   bool debug = false;
 
+  float pre_record_seconds = 0.5;
+  float post_record_seconds = 0.5;
+  
   VadModelConfig() = default;
 
   VadModelConfig(const SileroVadModelConfig &silero_vad, int32_t sample_rate,
-                 int32_t num_threads, const std::string &provider, bool debug)
+                 int32_t num_threads, const std::string &provider, bool debug,
+                 float pre_record_seconds, float post_record_seconds)
       : silero_vad(silero_vad),
         sample_rate(sample_rate),
         num_threads(num_threads),
         provider(provider),
-        debug(debug) {}
+        debug(debug),
+        pre_record_seconds(pre_record_seconds),
+        post_record_seconds(post_record_seconds) {}
 
   void Register(ParseOptions *po);
   bool Validate() const;

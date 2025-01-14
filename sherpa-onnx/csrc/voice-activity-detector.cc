@@ -40,6 +40,14 @@ class VoiceActivityDetector::Impl {
     Init();
   }
 
+  void SetPreRecordSeconds(float seconds) {
+    pre_record_samples_ = static_cast<int32_t>(seconds * config_.sample_rate);
+  }
+
+  void SetPostRecordSeconds(float seconds) {
+    post_record_samples_ = static_cast<int32_t>(seconds * config_.sample_rate);
+  }
+
   void AcceptWaveform(const float *samples, int32_t n) {
     if (buffer_.Size() > max_utterance_length_) {
       model_->SetMinSilenceDuration(new_min_silence_duration_s_);
@@ -79,16 +87,19 @@ class VoiceActivityDetector::Impl {
     if (is_speech) {
       if (start_ == -1) {
         // beginning of speech
+        // Add pre_record_samples to capture audio before speech starts
         start_ = std::max(buffer_.Tail() - 2 * model_->WindowSize() -
-                              model_->MinSpeechDurationSamples(),
-                          buffer_.Head());
+                         model_->MinSpeechDurationSamples() -
+                         pre_record_samples_,
+                         buffer_.Head());
       }
     } else {
       // non-speech
       if (start_ != -1 && buffer_.Size()) {
         // end of speech, save the speech segment
-        int32_t end = buffer_.Tail() - model_->MinSilenceDurationSamples();
-
+        // Add post_record_samples to capture audio after speech ends
+        int32_t end = buffer_.Tail() - model_->MinSilenceDurationSamples() +
+                      post_record_samples_;
         std::vector<float> s = buffer_.Get(start_, end - start_);
         SpeechSegment segment;
 
@@ -179,6 +190,10 @@ class VoiceActivityDetector::Impl {
   float new_threshold_ = 0.90;
 
   int32_t start_ = -1;
+
+  int32_t pre_record_samples_ = 1.0;   // samples to keep before speech starts
+  int32_t post_record_samples_ = 0.5;  // samples to keep after speech ends
+
 };
 
 VoiceActivityDetector::VoiceActivityDetector(
@@ -214,6 +229,15 @@ void VoiceActivityDetector::Flush() const { impl_->Flush(); }
 bool VoiceActivityDetector::IsSpeechDetected() const {
   return impl_->IsSpeechDetected();
 }
+
+void VoiceActivityDetector::SetPreRecordSeconds(float seconds) {
+  impl_->SetPreRecordSeconds(seconds);
+}
+
+void VoiceActivityDetector::SetPostRecordSeconds(float seconds) {
+  impl_->SetPostRecordSeconds(seconds);
+}
+
 
 const VadModelConfig &VoiceActivityDetector::GetConfig() const {
   return impl_->GetConfig();
