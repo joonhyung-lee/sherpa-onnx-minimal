@@ -171,6 +171,10 @@ class SileroVadModel::Impl {
     config_.silero_vad.threshold = threshold;
   }
 
+  float GetProb(const float *samples, int32_t n) {
+    return Run(samples, n);  // This directly returns the probability
+  }
+
  private:
   void Init(void *model_data, size_t model_data_length) {
     sess_ = std::make_unique<Ort::Session>(env_, model_data, model_data_length,
@@ -470,6 +474,11 @@ void SileroVadModel::SetMinSilenceDuration(float s) {
 
 void SileroVadModel::SetThreshold(float threshold) {
   impl_->SetThreshold(threshold);
+}
+
+// Add implementation
+float SileroVadModel::GetProb(const float *samples, int32_t n) {
+  return impl_->GetProb(samples, n);
 }
 
 #if __ANDROID_API__ >= 9

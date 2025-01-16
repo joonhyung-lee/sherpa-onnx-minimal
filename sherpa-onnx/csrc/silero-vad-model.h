@@ -44,6 +44,7 @@ class SileroVadModel : public VadModel {
 
   void SetMinSilenceDuration(float s) override;
   void SetThreshold(float threshold) override;
+  float GetProb(const float *samples, int32_t n) override;  // override 키워드 사용
 
  private:
   class Impl;

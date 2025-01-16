@@ -43,6 +43,7 @@ class VoiceActivityDetector {
 
   void SetPreRecordSeconds(float seconds);
   void SetPostRecordSeconds(float seconds);
+  float GetLastScore() const;
 
   const VadModelConfig &GetConfig() const;
 

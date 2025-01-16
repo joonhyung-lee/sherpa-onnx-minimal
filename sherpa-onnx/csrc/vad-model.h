@@ -40,6 +40,7 @@ class VadModel {
   virtual int32_t MinSpeechDurationSamples() const = 0;
   virtual void SetMinSilenceDuration(float s) = 0;
   virtual void SetThreshold(float threshold) = 0;
+  virtual float GetProb(const float *samples, int32_t n) = 0;
 };
 
 }  // namespace sherpa_onnx

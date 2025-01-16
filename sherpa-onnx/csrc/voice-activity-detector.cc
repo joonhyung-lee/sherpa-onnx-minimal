@@ -47,6 +47,7 @@ class VoiceActivityDetector::Impl {
   void SetPostRecordSeconds(float seconds) {
     post_record_samples_ = static_cast<int32_t>(seconds * config_.sample_rate);
   }
+  float GetLastScore() const { return last_score_; }
 
   void AcceptWaveform(const float *samples, int32_t n) {
     if (buffer_.Size() > max_utterance_length_) {
@@ -77,8 +78,8 @@ class VoiceActivityDetector::Impl {
     for (int32_t i = 0; i < k; ++i, p += window_shift) {
       buffer_.Push(p, window_shift);
       // NOTE(fangjun): Please don't use a very large n.
-      bool this_window_is_speech = model_->IsSpeech(p, window_size);
-      is_speech = is_speech || this_window_is_speech;
+      last_score_ = model_->GetProb(p, window_size);  // Get raw probability
+      is_speech = is_speech || last_score_ > config_.silero_vad.threshold;
     }
 
     last_ = std::vector<float>(
@@ -193,6 +194,7 @@ class VoiceActivityDetector::Impl {
 
   int32_t pre_record_samples_ = 1.0;   // samples to keep before speech starts
   int32_t post_record_samples_ = 0.5;  // samples to keep after speech ends
+  float last_score_ = 0.0f;  // Add this member variable
 
 };
 
@@ -238,6 +240,9 @@ void VoiceActivityDetector::SetPostRecordSeconds(float seconds) {
   impl_->SetPostRecordSeconds(seconds);
 }
 
+float VoiceActivityDetector::GetLastScore() const {
+  return impl_->GetLastScore();
+}
 
 const VadModelConfig &VoiceActivityDetector::GetConfig() const {
   return impl_->GetConfig();

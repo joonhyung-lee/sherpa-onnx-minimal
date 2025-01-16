@@ -7,6 +7,7 @@
 #include <stdlib.h>
 
 #include <algorithm>
+#include <iomanip>  // for std::fixed, std::setprecision
 #include <chrono>  // Add this at the top with other includes
 #include <mutex>  // NOLINT
 
@@ -251,6 +252,8 @@ to download models for offline ASR.
 
   int32_t window_size = vad_config.silero_vad.window_size;
   int32_t index = 0;
+  bool was_speech = false;  // Add this line to track speech state
+  auto speech_start_time = std::chrono::high_resolution_clock::now();  // Add this line
 
   while (!stop) {
     {
@@ -267,10 +270,28 @@ to download models for offline ASR.
         }
 
         vad->AcceptWaveform(samples.data(), samples.size());
+        float current_score = vad->GetLastScore();
+
+        if (!vad->IsSpeechDetected()) {
+          static float last_printed_score = 0.0f;
+          if (std::abs(current_score - last_printed_score) > 0.1f) {
+            std::cout << "\r[Non Recording] VAD: " << std::fixed << std::setprecision(2) 
+                     << current_score << "                              \r" << std::flush;
+            last_printed_score = current_score;
+          }
+        } else {
+          auto elapsed = std::chrono::duration<float>(
+              std::chrono::high_resolution_clock::now() - speech_start_time).count();
+          
+          std::cout << "\r[Recording] VAD: " << std::fixed << std::setprecision(2) 
+                   << current_score << " Duration: " << std::setprecision(2) 
+                   << elapsed << "s" << std::setw(20) << " " << std::flush;
+        }
       }
     }
 
     while (!vad->Empty()) {
+      was_speech = false;  // Reset speech detection flag
       const auto &segment = vad->Front();
       auto s = recognizer.CreateStream();
       s->AcceptWaveform(sample_rate, segment.samples.data(),
@@ -282,17 +303,18 @@ to download models for offline ASR.
       std::chrono::duration<float> duration = end_time - start_time;
       const auto &result = s->GetResult();
       if (!result.text.empty()) {
-        fprintf(stderr, "%2d: %s (%.3fs)\n", 
-                index, 
-                result.text.c_str(), 
-                duration.count());
+        std::cout << "\n[" << std::setw(2) << index << "] " << result.text 
+                  << " (inference time: " << std::fixed << std::setprecision(3) 
+                  << duration.count() << "s)\n" << std::endl;
 
+        // ############################################################
         // ############################################################
         // 공유 메모리에 결과 저장
         strncpy(shared_memory->text, result.text.c_str(), 1023);
         shared_memory->text[1023] = '\0';  // null 종료 보장
         shared_memory->index = index;
         shared_memory->new_data = true;
+        // ############################################################
         // ############################################################
 
         ++index;
@@ -302,7 +324,6 @@ to download models for offline ASR.
 
     Pa_Sleep(100);  // sleep for 100ms
   }
-
   err = Pa_CloseStream(stream);
   if (err != paNoError) {
     fprintf(stderr, "portaudio error: %s\n", Pa_GetErrorText(err));
