@@ -32,6 +32,8 @@ struct SharedData {
     char text[1024];  // 인식된 텍스트
     int index;        // 인덱스
     bool new_data;    // 새로운 데이터가 있는지 표시
+    bool is_active;   // STT Activation Flag
+    char state[32];   // Current State
 };
 
 SharedData* shared_memory = nullptr;
@@ -258,6 +260,16 @@ to download models for offline ASR.
   while (!stop) {
     {
       std::lock_guard<std::mutex> lock(mutex);
+
+      // If the state of STT is inactive, Skip VAD
+      if (!shared_memory->is_active) {
+        if (buffer.Size() > 0) {
+            buffer.Pop(buffer.Size());
+        }
+        std::cout << "\r[Paused] State: " << shared_memory->state
+                  << "                            \r" << std::flush;
+        continue;
+      }
 
       while (buffer.Size() >= window_size) {
         std::vector<float> samples = buffer.Get(buffer.Head(), window_size);
