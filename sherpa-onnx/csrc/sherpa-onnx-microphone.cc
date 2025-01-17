@@ -15,6 +15,25 @@
 #include "sherpa-onnx/csrc/microphone.h"
 #include "sherpa-onnx/csrc/online-recognizer.h"
 
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <string.h>
+#include <unistd.h>
+#include <iostream>
+
+// 공유 메모리에 저장될 데이터 구조체
+struct SharedData {
+    char text[1024];  // 인식된 텍스트
+    int index;        // 인덱스
+    bool new_data;    // 새로운 데이터가 있는지 표시
+    bool is_active;   // STT Activation Flag
+    char state[32];   // Current State
+};
+
+SharedData* shared_memory = nullptr;
+const char* SHM_NAME = "/sherpa_transcription";
+
 bool stop = false;
 float mic_sample_rate = 16000;
 
@@ -65,6 +84,45 @@ static std::string tolowerUnicode(const std::string &input_str) {
 
 int32_t main(int32_t argc, char *argv[]) {
   signal(SIGINT, Handler);
+
+
+  // ############################################################
+  // ############################################################
+  // 기존 공유 메모리가 있다면 제거
+  shm_unlink(SHM_NAME);
+
+  // 공유 메모리 생성 및 초기화
+  std::cout << "SHM_NAME: " << SHM_NAME << std::endl;
+  int fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
+  if (fd == -1) {
+      fprintf(stderr, "Failed to create shared memory: %s\n", strerror(errno));
+      exit(EXIT_FAILURE);
+  }
+
+  // 공유 메모리 크기 설정
+  if (ftruncate(fd, sizeof(SharedData)) == -1) {
+      fprintf(stderr, "Failed to set size of shared memory: %s\n", strerror(errno));
+      close(fd);
+      shm_unlink(SHM_NAME);
+      exit(EXIT_FAILURE);
+  }
+
+  // 메모리 매핑
+  shared_memory = (SharedData*)mmap(NULL, sizeof(SharedData), 
+                                   PROT_READ | PROT_WRITE, 
+                                   MAP_SHARED, fd, 0);
+  if (shared_memory == MAP_FAILED) {
+      fprintf(stderr, "Failed to map shared memory\n");
+      exit(EXIT_FAILURE);
+  }
+
+  // 초기화
+  memset(shared_memory, 0, sizeof(SharedData));
+  shared_memory->is_active = true;  // 시작할 때는 활성화 상태
+  strncpy(shared_memory->state, "recording", sizeof(shared_memory->state) - 1);
+  shared_memory->state[sizeof(shared_memory->state) - 1] = '\0';
+  // ############################################################
+  // ############################################################
 
   const char *kUsageMessage = R"usage(
 This program uses streaming models with microphone for speech recognition.
@@ -176,6 +234,14 @@ for a list of pre-trained models to download.
   int32_t segment_index = 0;
   sherpa_onnx::Display display(30);
   while (!stop) {
+    // STT가 비활성화 상태일 때
+    if (!shared_memory->is_active) {
+        std::cout << "\r[Paused] State: " << shared_memory->state
+                  << "                            \r" << std::flush;
+        Pa_Sleep(10);
+        continue;
+    }
+
     while (recognizer.IsReady(s.get())) {
       recognizer.DecodeStream(s.get());
     }
@@ -200,6 +266,12 @@ for a list of pre-trained models to download.
       last_text = text;
       display.Print(segment_index, tolowerUnicode(text));
       fflush(stderr);
+
+      // 공유 메모리에 결과 저장
+      strncpy(shared_memory->text, text.c_str(), 1023);
+      shared_memory->text[1023] = '\0';  // null 종료 보장
+      shared_memory->index = segment_index;
+      shared_memory->new_data = true;
     }
 
     if (is_endpoint) {
@@ -218,6 +290,10 @@ for a list of pre-trained models to download.
     fprintf(stderr, "portaudio error: %s\n", Pa_GetErrorText(err));
     exit(EXIT_FAILURE);
   }
+
+  munmap(shared_memory, sizeof(SharedData));
+  close(fd);
+  shm_unlink(SHM_NAME);
 
   return 0;
 }
