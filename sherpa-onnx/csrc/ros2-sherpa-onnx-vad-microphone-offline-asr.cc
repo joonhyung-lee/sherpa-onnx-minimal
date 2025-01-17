@@ -44,6 +44,22 @@ bool stop = false;
 std::mutex mutex;
 sherpa_onnx::CircularBuffer buffer(16000 * 60);
 
+// 특수 토큰을 필터링하는 함수 추가
+bool isSpecialToken(const std::string& text) {
+    // 특수 토큰 패턴: <|로 시작하고 |>로 끝나는 문자열
+    return (text.length() >= 4 && 
+            text.substr(0, 2) == "<|" && 
+            text.substr(text.length() - 2) == "|>");
+}
+
+// 특수 토큰을 제거하는 함수
+std::string removeSpecialTokens(const std::string& text) {
+    if (isSpecialToken(text)) {
+        return "";  // 특수 토큰인 경우 빈 문자열 반환
+    }
+    return text;
+}
+
 static int32_t RecordCallback(const void *input_buffer,
                               void * /*output_buffer*/,
                               unsigned long frames_per_buffer,  // NOLINT
@@ -138,8 +154,16 @@ to download models for offline ASR.
       exit(EXIT_FAILURE);
   }
 
+  // ############################################################
   // 초기화
   memset(shared_memory, 0, sizeof(SharedData));
+  // 초기 상태 설정
+  shared_memory->is_active = true;  // 시작할 때는 활성화 상태
+  strncpy(shared_memory->state, "recording", sizeof(shared_memory->state) - 1);
+  shared_memory->state[sizeof(shared_memory->state) - 1] = '\0';
+  
+  fprintf(stderr, "[Debug] Initial Shared Memory State - Active: %d, State: %s\n", 
+          shared_memory->is_active, shared_memory->state);
   // ############################################################
 
   vad_config.Register(&po);
@@ -258,84 +282,107 @@ to download models for offline ASR.
   auto speech_start_time = std::chrono::high_resolution_clock::now();  // Add this line
 
   while (!stop) {
-    {
-      std::lock_guard<std::mutex> lock(mutex);
+      {
+        std::lock_guard<std::mutex> lock(mutex);
 
-      // If the state of STT is inactive, Skip VAD
-      if (!shared_memory->is_active) {
-        if (buffer.Size() > 0) {
-            buffer.Pop(buffer.Size());
+        // Debug: Print shared memory state changes
+        static std::string last_state = "";
+        static bool last_active = true;
+        if (shared_memory->state != last_state || shared_memory->is_active != last_active) {
+            fprintf(stderr, "\n[Debug] Shared Memory State Changed - Active: %d, State: %s\n", 
+                  shared_memory->is_active, shared_memory->state);
+            last_state = shared_memory->state;
+            last_active = shared_memory->is_active;
+            
+            // 상태가 변경될 때 VAD 버퍼 초기화
+            if (!shared_memory->is_active) {
+                if (buffer.Size() > 0) {
+                    size_t cleared_size = buffer.Size();
+                    buffer.Pop(buffer.Size());
+                    fprintf(stderr, "[Debug] Cleared audio buffer: %zu samples\n", cleared_size);
+                }
+                while (!vad->Empty()) {
+                    vad->Pop();
+                }
+                fprintf(stderr, "[Debug] Cleared VAD buffer\n");
+            } else {
+                // 활성화될 때 speech_start_time 재설정
+                speech_start_time = std::chrono::high_resolution_clock::now();
+                fprintf(stderr, "[Debug] STT activated - Reset speech timer\n");
+            }
         }
-        std::cout << "\r[Paused] State: " << shared_memory->state
-                  << "                            \r" << std::flush;
-        continue;
+        // STT가 비활성화 상태일 때
+        if (!shared_memory->is_active) {
+            std::cout << "\r[Paused] State: " << shared_memory->state
+                      << "                            \r" << std::flush;
+            Pa_Sleep(10);
+            continue;
+        }
+
+        while (buffer.Size() >= window_size && shared_memory->is_active) {  // Added condition
+            std::vector<float> samples = buffer.Get(buffer.Head(), window_size);
+            buffer.Pop(window_size);
+
+            if (resampler) {
+                std::vector<float> tmp;
+                resampler->Resample(samples.data(), samples.size(), true, &tmp);
+                samples = std::move(tmp);
+            }
+
+            vad->AcceptWaveform(samples.data(), samples.size());
+            float current_score = vad->GetLastScore();
+
+            if (!vad->IsSpeechDetected()) {
+                static float last_printed_score = 0.0f;
+                if (std::abs(current_score - last_printed_score) > 0.1f) {
+                    std::cout << "\r[Non Recording] VAD: " << std::fixed << std::setprecision(2) 
+                            << current_score << "                              \r" << std::flush;
+                    last_printed_score = current_score;
+                }
+            } else {
+                auto elapsed = std::chrono::duration<float>(
+                    std::chrono::high_resolution_clock::now() - speech_start_time).count();
+                
+                std::cout << "\r[Recording] VAD: " << std::fixed << std::setprecision(2) 
+                        << current_score << " Duration: " << std::setprecision(2) 
+                        << elapsed << "s" << std::setw(20) << " " << std::flush;
+            }
+        }
       }
 
-      while (buffer.Size() >= window_size) {
-        std::vector<float> samples = buffer.Get(buffer.Head(), window_size);
-        buffer.Pop(window_size);
+      // Process VAD segments only if STT is active
+      while (!vad->Empty() && shared_memory->is_active) {  // Added condition
+          was_speech = false;
+          const auto &segment = vad->Front();
+          auto s = recognizer.CreateStream();
+          s->AcceptWaveform(sample_rate, segment.samples.data(),
+                          segment.samples.size());
+          auto start_time = std::chrono::high_resolution_clock::now();
+          recognizer.DecodeStream(s.get());
+          auto end_time = std::chrono::high_resolution_clock::now();
+          std::chrono::duration<float> duration = end_time - start_time;
 
-        if (resampler) {
-          std::vector<float> tmp;
-          resampler->Resample(samples.data(), samples.size(), true, &tmp);
-          samples = std::move(tmp);
-        }
+          const auto &result = s->GetResult();
+          std::string filtered_text = removeSpecialTokens(result.text);
+          if (!filtered_text.empty()) {  // 필터링된 텍스트가 비어있지 않은 경우에만 출력
+            std::cout << "\n[" << std::setw(2) << index << "] " << filtered_text 
+                      << " (inference time: " << std::fixed << std::setprecision(3) 
+                      << duration.count() << "s)\n" << std::endl;
 
-        vad->AcceptWaveform(samples.data(), samples.size());
-        float current_score = vad->GetLastScore();
+            // 공유 메모리에 결과 저장
+            strncpy(shared_memory->text, filtered_text.c_str(), 1023);
+            shared_memory->text[1023] = '\0';  // null 종료 보장
+            shared_memory->index = index;
+            shared_memory->new_data = true;
 
-        if (!vad->IsSpeechDetected()) {
-          static float last_printed_score = 0.0f;
-          if (std::abs(current_score - last_printed_score) > 0.1f) {
-            std::cout << "\r[Non Recording] VAD: " << std::fixed << std::setprecision(2) 
-                     << current_score << "                              \r" << std::flush;
-            last_printed_score = current_score;
+            ++index;
           }
-        } else {
-          auto elapsed = std::chrono::duration<float>(
-              std::chrono::high_resolution_clock::now() - speech_start_time).count();
-          
-          std::cout << "\r[Recording] VAD: " << std::fixed << std::setprecision(2) 
-                   << current_score << " Duration: " << std::setprecision(2) 
-                   << elapsed << "s" << std::setw(20) << " " << std::flush;
-        }
+          vad->Pop();
       }
-    }
 
-    while (!vad->Empty()) {
-      was_speech = false;  // Reset speech detection flag
-      const auto &segment = vad->Front();
-      auto s = recognizer.CreateStream();
-      s->AcceptWaveform(sample_rate, segment.samples.data(),
-                        segment.samples.size());
-      auto start_time = std::chrono::high_resolution_clock::now();
-      recognizer.DecodeStream(s.get());
-      auto end_time = std::chrono::high_resolution_clock::now();
-
-      std::chrono::duration<float> duration = end_time - start_time;
-      const auto &result = s->GetResult();
-      if (!result.text.empty()) {
-        std::cout << "\n[" << std::setw(2) << index << "] " << result.text 
-                  << " (inference time: " << std::fixed << std::setprecision(3) 
-                  << duration.count() << "s)\n" << std::endl;
-
-        // ############################################################
-        // ############################################################
-        // 공유 메모리에 결과 저장
-        strncpy(shared_memory->text, result.text.c_str(), 1023);
-        shared_memory->text[1023] = '\0';  // null 종료 보장
-        shared_memory->index = index;
-        shared_memory->new_data = true;
-        // ############################################################
-        // ############################################################
-
-        ++index;
-      }
-      vad->Pop();
-    }
-
-    Pa_Sleep(100);  // sleep for 100ms
+      Pa_Sleep(10);
   }
+
   err = Pa_CloseStream(stream);
   if (err != paNoError) {
     fprintf(stderr, "portaudio error: %s\n", Pa_GetErrorText(err));
